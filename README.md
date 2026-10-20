@@ -43,6 +43,14 @@ generated code, which the OWASP Top 10 for LLM Applications files under
 improper output handling. A reviewer that matches text gives the evasion
 away for free.
 
+Reading structure handles how the *string* is built. It does not, by
+itself, handle how the *sink* is named, which I found by attacking the
+detector. `from os import system` then a bare `system(...)` call slipped past
+the first version; the reviewer now resolves imports statically and catches
+it (`fixtures/import_alias_caught.py`). Rebinding the sink to a variable,
+`run = os.system` (`fixtures/alias_blindspot.py`), still slips. That one is
+the same no-value-tracking limitation as blind spot 2 below.
+
 ## Blind spot 2: what the verifier resolves wrong
 
 This is the part specific to a consensus system, and the reason the lab
@@ -64,16 +72,19 @@ asserted by the tests rather than hidden:
   named constant so that choice stays visible rather than buried in a
   comparison.
 
-- **Single-file, single-pass AST.** Every agent reads one file's syntax tree
-  in one pass. A vulnerability assembled across function or module
-  boundaries, where a value is tainted in one place and becomes dangerous
-  three calls away in another, sits outside what a single AST pass can
-  follow. Catching it needs dataflow and taint tracking, which this lab does
-  not do and does not claim to.
+- **No value tracking.** Every agent reads one file's syntax tree in one
+  pass and reasons about the shapes it sees directly; it never follows a
+  value from where it is set to where it is used. That is why `run =
+  os.system` slips, and why a vulnerability assembled across function or
+  module boundaries, tainted in one place and dangerous three calls away in
+  another, sits outside what the reviewer can see. Catching either needs
+  dataflow and taint tracking, which this lab does not do and does not claim
+  to.
 
-Stating those limits is the useful part. Saying where a consensus of agents
-goes blind, and roughly what it would take to close the gap, is worth more
-than one more claim about how many bugs the thing finds.
+Stating those limits is the useful part, and most of what I know about them
+came from attacking the reviewer rather than trusting it. Saying where a
+consensus of agents goes blind, and roughly what it would take to close the
+gap, is worth more than one more claim about how many bugs the thing finds.
 
 ## Where it does hold
 

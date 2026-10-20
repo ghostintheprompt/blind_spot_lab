@@ -177,6 +177,7 @@ class ContextRiskAgent(ast.NodeVisitor):
 
     def __init__(self) -> None:
         self.findings: List[Dict[str, Any]] = []
+        self.sink_aliases: Dict[str, tuple] = {}
 
     def _add(self, rule: str, sev: str, cwe: str, node: ast.AST, msg: str) -> None:
         self.findings.append({
@@ -193,28 +194,28 @@ class ContextRiskAgent(ast.NodeVisitor):
         root = _callee_root(node)
 
         # Command injection — CWE-78.
-        # This is the evasion-resilient rule: it does not look for a
-        # literal `os.system("...")`. It looks at whether a shell sink
-        # receives a command that is NOT a pure literal — concatenation,
-        # an f-string, a variable, a format call. That is the structural
-        # signature a regex over source text cannot see.
-        is_os_shell = root == "os" and name in {"system", "popen"}
-        is_subprocess = name in {"run", "Popen", "call", "check_output", "check_call"}
-        if (is_os_shell or is_subprocess) and node.args:
+        # Evasion-resilient on HOW the command is built: it does not look
+        # for a literal `os.system("...")`, it fires on any shell sink that
+        # receives a command which is NOT a pure literal — concatenation,
+        # f-string, variable, format call. Import aliases are resolved
+        # statically too (`from os import system`). It does NOT track
+        # values, so a sink rebound to a variable at runtime slips; that
+        # miss is demonstrated by the alias_blindspot fixture, not hidden.
+        sink = self._resolve_shell_sink(node, name, root)
+        if sink and node.args:
+            module, func = sink
             shell_true = any(
                 kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True
                 for kw in node.keywords
             )
             dynamic = not _is_constant_command(node.args[0])
-            if is_os_shell:
-                sev = "CRITICAL" if dynamic else "LOW"
-                if dynamic:
-                    self._add("CTX-CMD-INJECTION", sev, "CWE-78", node,
-                              f"os.{name}() runs a non-literal command string (injectable)")
-            elif is_subprocess and shell_true:
+            if module == "os" and dynamic:
+                self._add("CTX-CMD-INJECTION", "CRITICAL", "CWE-78", node,
+                          f"os.{func}() runs a non-literal command string (injectable)")
+            elif module == "subprocess" and shell_true:
                 sev = "CRITICAL" if dynamic else "HIGH"
                 self._add("CTX-CMD-INJECTION", sev, "CWE-78", node,
-                          f"subprocess.{name}(shell=True) "
+                          f"subprocess.{func}(shell=True) "
                           + ("with a non-literal command (injectable)" if dynamic
                              else "invites injection even with a literal today"))
 
@@ -291,7 +292,32 @@ class ContextRiskAgent(ast.NodeVisitor):
                    "OAuth callback handles 'code' with no 'state' parameter at all")
             self._add("CTX-OAUTH-STATE", "HIGH", "CWE-352", fn, msg)
 
+    def _resolve_shell_sink(self, node: ast.Call, name: str, root: str):
+        """Return (module, func) for a shell sink, resolving
+        `from os import system`-style imports via the alias table.
+        Returns None otherwise. Deliberately does not chase runtime
+        rebinding (run = os.system) or getattr indirection — that is a
+        value-tracking problem this single-pass AST does not solve, and
+        the alias_blindspot fixture demonstrates the miss on purpose."""
+        if root == "os" and name in {"system", "popen"}:
+            return ("os", name)
+        if root == "subprocess" and name in {"run", "Popen", "call", "check_output", "check_call"}:
+            return ("subprocess", name)
+        if root == "" and isinstance(node.func, ast.Name) and name in self.sink_aliases:
+            mod, orig = self.sink_aliases[name]
+            if mod == "os" and orig in {"system", "popen"}:
+                return ("os", orig)
+            if mod == "subprocess" and orig in {"run", "Popen", "call", "check_output", "check_call"}:
+                return ("subprocess", orig)
+        return None
+
     def run(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        # Static import resolution pass: map `from os import system` and
+        # friends back to their origin so an import alias can't hide a sink.
+        for n in ast.walk(tree):
+            if isinstance(n, ast.ImportFrom) and n.module in ("os", "subprocess"):
+                for alias in n.names:
+                    self.sink_aliases[alias.asname or alias.name] = (n.module, alias.name)
         self.visit(tree)
         return self.findings
 

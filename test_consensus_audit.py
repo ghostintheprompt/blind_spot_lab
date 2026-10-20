@@ -111,5 +111,21 @@ class ConsensusBlindSpot(unittest.TestCase):
         self.assertEqual(agents, {"ast-inspector", "context-risk"})
 
 
+class Aliasing(unittest.TestCase):
+    def test_import_alias_now_caught(self):
+        # `from os import system` used to slip; static import resolution
+        # catches it now.
+        rep = audit("import_alias_caught.py")
+        self.assertIn("CTX-CMD-INJECTION", rules(rep))
+        self.assertEqual(rep["verdict"], "REJECT")
+
+    def test_variable_alias_is_a_known_blind_spot(self):
+        # Sink rebound to a variable at runtime. No value tracking, so it
+        # slips. Asserted as the documented blind spot, not hidden.
+        rep = audit("alias_blindspot.py")
+        self.assertEqual(rep["verdict"], "PASS")
+        self.assertEqual(rep["findings"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
