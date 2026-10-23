@@ -14,7 +14,7 @@ blind spots are what the lab is about.
 ```
 python3 consensus_audit.py                      # audit the bundled fixtures
 python3 consensus_audit.py path/to/file.py      # audit one file, JSON out
-python3 -m unittest -v test_consensus_audit.py  # the test suite (10, all green)
+python3 -m unittest -v test_consensus_audit.py  # the test suite (12, all green)
 ```
 
 ## Blind spot 1: what the swarm never sees
