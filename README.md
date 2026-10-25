@@ -1,7 +1,7 @@
 # blind_spot_lab
 
 Reviewing code with a system of agents that vote on a verdict is becoming
-common. This lab is not another entry in the race to find the most bugs.
+common. This lab studies how a reviewer misses bugs and how its verifier turns findings into a verdict.
 It looks at the other question: when a consensus of agents reviews code,
 where does it go blind, and what walks through the gap?
 
@@ -59,16 +59,18 @@ verdict. Two failure modes are built in on purpose, demonstrated, and
 asserted by the tests rather than hidden:
 
 - **Slow accumulation of medium findings.** `fixtures/subthreshold.py` uses
-  a broken hash in four places. Four MEDIUM findings score 8, under the
+  MD5 in four places. Four MEDIUM findings score 8, under the
   `REJECT_THRESHOLD` of 10, so the verdict is **PASS**:
 
   ```
      PASS  subthreshold.py              score=8   findings=4
   ```
 
-  A module broken in four places clears the gate. Nothing in it is
-  individually bad enough, and the verifier has no sense that a pile of
-  low-severity findings should add up to something worse. The threshold is a
+  Four MEDIUM rule hits clear the gate. The fixture uses hashes for cache
+  keys, deduplication, fingerprints, and an ETag. The rule does not infer
+  security requirements, so those four calls do not by themselves prove
+  four vulnerabilities. The score demonstrates the aggregation threshold;
+  the consequence depends on the actual trust boundary. The threshold is a
   named constant so that choice stays visible rather than buried in a
   comparison.
 
@@ -88,8 +90,8 @@ gap, is worth more than one more claim about how many bugs the thing finds.
 
 ## Where it does hold
 
-So the blind spots read as chosen rather than accidental, the reviewer is
-sharp everywhere else. It flags an OAuth callback that exchanges a `code` but
+So the blind spots read as chosen rather than accidental, the bundled tests also exercise the reviewer
+on known fixtures. It flags an OAuth callback that exchanges a `code` but
 never validates `state` (CWE-352), a token checked with `==` instead of a
 constant-time compare (CWE-208), `verify=False` disabling TLS (CWE-295),
 unsafe deserialization (CWE-502), weak hashes (CWE-327), hard-coded secrets
@@ -104,7 +106,7 @@ test suite pins both.
 - `naive_regex_review.py`: the string-matching baseline it beats (blind spot 1).
 - `fixtures/`: clean, command-injection, OAuth-logic, insecure-defaults,
   and the sub-threshold blind-spot case.
-- `test_consensus_audit.py`: 10 tests covering the catches, the clean-code
+- `test_consensus_audit.py`: 12 tests covering the catches, the clean-code
   quiet, and both blind spots.
 
 ## Standards referenced
@@ -112,3 +114,10 @@ test suite pins both.
 CWE-78, CWE-95, CWE-208, CWE-295, CWE-327, CWE-352, CWE-502; OWASP Top 10 for
 LLM Applications (improper output handling, as the frame for agents that
 review model-generated code).
+
+
+October 24, 2026 verification: all 12 standard-library tests pass. The bundled
+run preserves score 8 / PASS for subthreshold and score 0 / PASS for the
+variable alias. These are deterministic AST checks, not a measurement of
+model-based reviewer performance. The MD5 finding count alone does not
+establish exploitability of its cache/fingerprint uses.
